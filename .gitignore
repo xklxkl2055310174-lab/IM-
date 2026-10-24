@@ -1,0 +1,43 @@
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!scripts/**/*.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.idea_modules/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---- 运行产物 ----
+logs/
+*.log
+data/
+received/
+out/
+
+# ---- 临时 ----
+tmp/
+.temp/
+*.tmp
