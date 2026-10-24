@@ -249,19 +249,23 @@ public final class Server {
         if (msg.msgId() == null || msg.msgId().isBlank()) {
             return error(msg.requestId(), ErrorCode.INVALID_PAYLOAD, "msgId 不能为空");
         }
-        if (messages.existsMsgId(msg.msgId())) {
-            // 幂等：同一 msgId 重发不重复入库，直接回 ACK
-            log.info("重复消息 {}，直接 ACK", msg.msgId());
-            return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
-                    ErrorCode.OK.code(), "重复消息，已忽略"));
-        }
         if (msg.toUserId() <= 0 || users.findById(msg.toUserId()).isEmpty()) {
             return error(msg.requestId(), ErrorCode.USER_NOT_FOUND, "接收者不存在");
         }
         long now = System.currentTimeMillis();
-        long messageId = messages.insertMessage(msg.msgId(), 1, conn.userId(), msg.toUserId(), null,
-                msg.content(), now);
-        messages.insertInbox(msg.toUserId(), messageId, msg.msgId(), conn.userId(), msg.content(), now);
+        long messageId;
+        try {
+            messageId = messages.insertMessageWithInbox(msg.msgId(), 1, conn.userId(), msg.toUserId(), null,
+                    msg.content(), now, List.of(msg.toUserId()));
+        } catch (IllegalStateException e) {
+            if (duplicateKey(e)) {
+                // 幂等：唯一索引兜底，未重复入库
+                log.info("重复消息 {}，直接 ACK", msg.msgId());
+                return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
+                        ErrorCode.OK.code(), "重复消息，已忽略"));
+            }
+            throw e;
+        }
 
         Connection target = online.get(msg.toUserId());
         if (target != null && target.isOpen()) {
@@ -269,7 +273,7 @@ public final class Server {
                     msg.toUserId(), msg.content(), msg.timestamp())));
         }
         return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
-                ErrorCode.OK.code(), "已接收"));
+                ErrorCode.OK.code(), "已接收" + (messageId > 0 ? "" : "")));
     }
 
     private Packet onGroupMsg(Connection conn, Packet packet) throws ProtocolException {
@@ -286,28 +290,35 @@ public final class Server {
         if (!social.isMember(msg.groupId(), conn.userId())) {
             return error(msg.requestId(), ErrorCode.NO_PERMISSION, "非群成员，不能发言");
         }
-        if (messages.existsMsgId(msg.msgId())) {
-            return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
-                    ErrorCode.OK.code(), "重复消息，已忽略"));
-        }
-
         long now = System.currentTimeMillis();
-        long messageId = messages.insertMessage(msg.msgId(), 2, conn.userId(), null, msg.groupId(),
-                msg.content(), now);
+        List<SocialRepo.MemberRow> members = social.membersOf(msg.groupId());
+        List<Long> recipients = new ArrayList<>(members.size());
+        for (SocialRepo.MemberRow member : members) {
+            if (member.userId() != conn.userId()) {
+                recipients.add(member.userId());
+            }
+        }
+        long messageId;
+        try {
+            messageId = messages.insertMessageWithInbox(msg.msgId(), 2, conn.userId(), null, msg.groupId(),
+                    msg.content(), now, recipients);
+        } catch (IllegalStateException e) {
+            if (duplicateKey(e)) {
+                return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
+                        ErrorCode.OK.code(), "重复消息，已忽略"));
+            }
+            throw e;
+        }
         GroupMsg delivered = new GroupMsg("", msg.msgId(), conn.userId(), msg.groupId(),
                 msg.content(), msg.timestamp());
-        for (SocialRepo.MemberRow member : social.membersOf(msg.groupId())) {
-            if (member.userId() == conn.userId()) {
-                continue;
-            }
-            messages.insertInbox(member.userId(), messageId, msg.msgId(), conn.userId(), msg.content(), now);
-            Connection target = online.get(member.userId());
+        for (Long recipient : recipients) {
+            Connection target = online.get(recipient);
             if (target != null && target.isOpen()) {
                 target.send(json(MessageType.GROUP_MSG, delivered));
             }
         }
         return json(MessageType.MSG_ACK, new MsgAck(msg.requestId(), msg.msgId(),
-                ErrorCode.OK.code(), "已接收"));
+                ErrorCode.OK.code(), "已接收" + (messageId > 0 ? "" : "")));
     }
 
     private Packet onDeliverAck(Connection conn, Packet packet) throws ProtocolException {
@@ -482,6 +493,19 @@ public final class Server {
 
     private Packet json(MessageType type, Object body) {
         return Packet.ofJson(type, JsonUtil.toJson(body));
+    }
+
+    /** 是否唯一键冲突（用于 msg_id 幂等）。 */
+    private static boolean duplicateKey(Throwable error) {
+        Throwable cause = error;
+        while (cause != null) {
+            if (cause instanceof java.sql.SQLException sql
+                    && String.valueOf(sql.getSQLState()).startsWith("23")) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private Packet error(String requestId, ErrorCode code, String message) {

@@ -13,10 +13,9 @@
     <artifactId>im-bench</artifactId>
     <packaging>jar</packaging>
     <name>im-bench</name>
-    <description>压测工具：复用 im-client 网络层，无界面</description>
+    <description>压测与端到端测试：复用 im-client 网络层，无界面</description>
 
     <dependencies>
-        <!-- 总纲要求：im-bench 复用 im-client 的 net 层 -->
         <dependency>
             <groupId>com.im</groupId>
             <artifactId>im-client</artifactId>
@@ -29,6 +28,18 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 端到端测试启动真实服务端 -->
+        <dependency>
+            <groupId>com.im</groupId>
+            <artifactId>im-server</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -37,6 +48,13 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Djava.awt.headless=true</argLine>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

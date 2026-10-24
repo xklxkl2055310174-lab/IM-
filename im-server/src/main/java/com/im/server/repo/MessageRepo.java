@@ -60,10 +60,57 @@ public final class MessageRepo {
     /** 插入消息本体，返回自增 id。 */
     public long insertMessage(String msgId, int kind, long fromUser, Long toUser, Long groupId,
                               String content, long createdAt) {
+        try (Connection conn = db.connection()) {
+            return insertMessage(conn, msgId, kind, fromUser, toUser, groupId, content, createdAt);
+        } catch (SQLException e) {
+            throw new IllegalStateException("插入消息失败", e);
+        }
+    }
+
+    /**
+     * 优化版：消息本体 + 所有收件箱记录在**同一事务**内写入（批量插入），
+     * 一次取连接、一次提交，供私聊与群聊扇出共用。
+     *
+     * @return 消息 id
+     */
+    public long insertMessageWithInbox(String msgId, int kind, long fromUser, Long toUser, Long groupId,
+                                       String content, long createdAt, List<Long> recipients) {
+        try (Connection conn = db.connection()) {
+            conn.setAutoCommit(false);
+            try {
+                long messageId = insertMessage(conn, msgId, kind, fromUser, toUser, groupId, content, createdAt);
+                String sql = "INSERT INTO offline_message (user_id, message_id, msg_id, from_user, content, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?)";
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    for (Long recipient : recipients) {
+                        ps.setLong(1, recipient);
+                        ps.setLong(2, messageId);
+                        ps.setString(3, msgId);
+                        ps.setLong(4, fromUser);
+                        ps.setString(5, content);
+                        ps.setLong(6, createdAt);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                conn.commit();
+                return messageId;
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("写入消息与收件箱失败", e);
+        }
+    }
+
+    private long insertMessage(Connection conn, String msgId, int kind, long fromUser, Long toUser,
+                               Long groupId, String content, long createdAt) throws SQLException {
         String sql = "INSERT INTO message (msg_id, kind, from_user, to_user, group_id, content, created_at) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?)";
-        try (Connection conn = db.connection();
-             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, msgId);
             ps.setInt(2, kind);
             ps.setLong(3, fromUser);
@@ -84,10 +131,8 @@ public final class MessageRepo {
                 if (keys.next()) {
                     return keys.getLong(1);
                 }
-                throw new IllegalStateException("未返回自增主键");
+                throw new SQLException("未返回自增主键");
             }
-        } catch (SQLException e) {
-            throw new IllegalStateException("插入消息失败", e);
         }
     }
 

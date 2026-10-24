@@ -5,6 +5,45 @@
 
 ---
 
+## 阶段 4：端到端测试、压测与优化 ✅
+
+**日期**：2026-10-25 · **范围**：`im-bench`（E2E 测试 + 压测工具）、`im-server`（两项写库优化）、`docs/benchmark.md`
+
+### 完成内容
+
+| 项 | 说明 |
+|---|---|
+| 端到端测试 | `im-bench` 内 `E2eTest`：真实服务端（随机端口）跑通 注册→加好友→私聊→对方离线→上线收离线→群聊→文件上传下载 MD5→强制断开重连→同 msgId 不重复入库 |
+| 压测工具 | `im-bench` 四场景：`connections` / `throughput` / `fanout` / `stability`；参数 `--scenario --connections --pairs --rate --duration --members --messages --size`；复用 `im-client` net 层，所有模拟客户端**共享一个心跳调度线程**（`ImConnection` 新增共享调度器构造） |
+| 优化 1 | 消息本体 + 全部收件箱记录**单事务 + JDBC batch** 写入；幂等改由 `msg_id` 唯一索引兜底，去掉每消息的 `existsMsgId` 预查询（3 次取连接/提交 → 1 次） |
+| 优化 2 | 群扇出批量入箱（随优化 1 生效）；连接池 10→30 做了对照实验，**无收益**（H2 写事务串行化），已恢复默认 10 并把结论写入 benchmark |
+| 压测报告 | `docs/benchmark.md`：环境、参数、结果表、瓶颈分析、优化前后对比、结论与局限、复现命令 |
+
+### 实测结果（本机，详见 benchmark.md）
+
+| 场景 | 结果 |
+|---|---|
+| connections 200 | 100% 成功，20.6s，客户端 609 线程 / 24.3MB 堆 |
+| throughput 10×10×10s | 优化前 65 msg/s → 优化后 **83 msg/s（+27.7%）**；P99 54ms → 69ms（低负载波动） |
+| throughput 40×20×10s | **582 msg/s**，P50 1ms / P95 3ms / P99 8ms，丢失 0.08% |
+| fanout 50 人 ×3 | 优化前 avg 19.7ms/max 43ms → 优化后 **avg 16.0ms/max 36ms（-18.8%）** |
+| stability 50×20s（每秒断 5%） | 重连 36 次，失败 **0**，客户端 172 线程 / 30.7MB 堆 |
+
+### 验证记录
+
+| 检查项 | 结果 |
+|---|---|
+| `mvn clean verify` | BUILD SUCCESS；im-common 15 + im-server 21 + im-client 13 + im-bench 1(E2E) = **50** 个测试全绿 |
+
+### 已知限制
+
+- 未实现可选的 NIO 传输与虚拟线程模式（协议/net 层已按可替换设计，留待后续）。
+- 连接容量实测到 200；500/1000/2000 需更高配置机器 + `ulimit -n`/`-Xss`，命令已写入 benchmark.md。
+- 稳定性只跑 20s（命令支持 `--duration 600` 做 10 分钟长稳）。
+- 客户端与服务端同机，绝对吞吐偏低；结论以相对对比为准。
+
+---
+
 ## 阶段 3-B：客户端完整功能 ✅
 
 **日期**：2026-10-25 · **范围**：仅 `im-client`（可靠接收、好友、群聊、历史、重连、文件、体验打磨）
@@ -216,3 +255,4 @@ java -cp im-server/target/im-server.jar com.im.server.demo.DemoClient --port 808
 | 阶段 2-B：可靠投递、好友、群组、文件服务 | ✅ | 2026-10-25 |
 | 阶段 3-A：客户端网络层 + 登录 + 私聊 | ✅ | 2026-10-25 |
 | 阶段 3-B：客户端完整功能 | ✅ | 2026-10-25 |
+| 阶段 4：端到端测试、压测与优化 | ✅ | 2026-10-25 |

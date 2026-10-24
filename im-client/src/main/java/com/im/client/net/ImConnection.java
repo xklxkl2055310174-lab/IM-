@@ -56,6 +56,7 @@ public final class ImConnection implements AutoCloseable {
     private final ScheduledExecutorService scheduler;
     private final Duration heartbeatInterval;
     private final int heartbeatMissLimit;
+    private final boolean closeScheduler;
 
     private Socket socket;
     private DataInputStream in;
@@ -72,14 +73,27 @@ public final class ImConnection implements AutoCloseable {
     }
 
     public ImConnection(Duration requestTimeout, Duration heartbeatInterval, int heartbeatMissLimit) {
+        this(requestTimeout, heartbeatInterval, heartbeatMissLimit, null, true);
+    }
+
+    /**
+     * 压测/多连接场景：共享一个心跳调度器，避免每个连接一个线程。
+     *
+     * @param sharedScheduler 共享调度器；为 null 时自带一个
+     * @param closeScheduler  关闭连接时是否关闭调度器（共享时应传 false）
+     */
+    public ImConnection(Duration requestTimeout, Duration heartbeatInterval, int heartbeatMissLimit,
+                        ScheduledExecutorService sharedScheduler, boolean closeScheduler) {
         this.requests = new RequestManager(requestTimeout);
         this.heartbeatInterval = heartbeatInterval;
         this.heartbeatMissLimit = heartbeatMissLimit;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "im-net-heartbeat");
-            t.setDaemon(true);
-            return t;
-        });
+        this.closeScheduler = closeScheduler;
+        this.scheduler = sharedScheduler != null ? sharedScheduler
+                : Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "im-net-heartbeat");
+                    t.setDaemon(true);
+                    return t;
+                });
     }
 
     // ---------- 生命周期 ----------
@@ -308,6 +322,8 @@ public final class ImConnection implements AutoCloseable {
     public void close() {
         shutdown(true);
         requests.close();
-        scheduler.shutdownNow();
+        if (closeScheduler) {
+            scheduler.shutdownNow();
+        }
     }
 }

@@ -183,9 +183,19 @@ public final class ChatService implements AutoCloseable {
         return new PendingMessage(UUID.randomUUID().toString(), toUserId, content, System.currentTimeMillis());
     }
 
+    /** 用指定 msgId 创建消息（压测/重发对账使用）。 */
+    public PendingMessage newMessage(long toUserId, String content, String msgId) {
+        return new PendingMessage(msgId, toUserId, content, System.currentTimeMillis());
+    }
+
     /** 发送私聊；返回的消息对象会在 ACK 到达或超时时更新状态。 */
     public CompletableFuture<PendingMessage> sendPrivate(long toUserId, String content) {
         return send(newMessage(toUserId, content));
+    }
+
+    /** 发送私聊（指定 msgId，服务端按 msgId 幂等）。 */
+    public CompletableFuture<PendingMessage> sendPrivate(long toUserId, String content, String msgId) {
+        return send(newMessage(toUserId, content, msgId));
     }
 
     /** 发送一个已创建的消息对象。 */
