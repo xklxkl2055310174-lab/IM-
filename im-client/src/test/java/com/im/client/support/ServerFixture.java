@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 /**
- * 测试夹具：随机端口 + 内存 H2 + 临时文件目录启动真实服务端。
+ * 测试夹具：随机（或指定）端口 + 内存 H2 + 临时文件目录启动真实服务端。
  */
 public final class ServerFixture implements AutoCloseable {
 
@@ -20,12 +20,17 @@ public final class ServerFixture implements AutoCloseable {
     }
 
     public static ServerFixture start() throws Exception {
+        return start(0, 0);
+    }
+
+    /** @param port 0 表示随机；{@code filePort} 同理 */
+    public static ServerFixture start(int port, int filePort) throws Exception {
         Path files = Files.createTempDirectory("im-client-files");
         String dbUrl = "jdbc:h2:mem:cli_" + UUID.randomUUID().toString().replace("-", "")
                 + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
         ServerConfig config = new ServerConfig(
-                0, 128, 200, 4, 256,
-                0, files.toString(), 1024 * 1024, 2,
+                port, 128, 200, 4, 256,
+                filePort, files.toString(), 8 * 1024 * 1024, 2,
                 90, 1000,
                 dbUrl, "sa", "", 10);
         Database database = new Database(config.dbUrl(), config.dbUser(), config.dbPassword(), config.dbPoolSize());
@@ -34,6 +39,10 @@ public final class ServerFixture implements AutoCloseable {
 
     public int port() {
         return runtime.port();
+    }
+
+    public int filePort() {
+        return runtime.filePort();
     }
 
     public ServerRuntime runtime() {

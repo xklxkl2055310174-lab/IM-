@@ -64,6 +64,8 @@ public final class ImConnection implements AutoCloseable {
     private Thread writer;
     private volatile State state = State.DISCONNECTED;
     private volatile long lastInboundAt = System.currentTimeMillis();
+    private volatile int generation;
+    private volatile boolean heartbeatStarted;
 
     public ImConnection() {
         this(Duration.ofSeconds(10), Duration.ofSeconds(30), 3);
@@ -85,6 +87,23 @@ public final class ImConnection implements AutoCloseable {
     /** 建立连接并启动读/写/心跳线程。 */
     public void connect(String host, int port, Duration timeout) throws IOException {
         changeState(State.CONNECTING);
+        openSocket(host, port, timeout);
+        changeState(State.CONNECTED);
+    }
+
+    /**
+     * 断线重连：保留监听器、请求表与写队列，只重建 socket 与读/写线程。
+     *
+     * <p>用于自动重连；调用方随后应使用 token 重登。</p>
+     */
+    public void reconnect(String host, int port, Duration timeout) throws IOException {
+        changeState(State.CONNECTING);
+        closeSocketOnly();
+        openSocket(host, port, timeout);
+        changeState(State.CONNECTED);
+    }
+
+    private void openSocket(String host, int port, Duration timeout) throws IOException {
         Socket socket = new Socket();
         socket.connect(new InetSocketAddress(host, port), (int) timeout.toMillis());
         socket.setTcpNoDelay(true);
@@ -93,15 +112,38 @@ public final class ImConnection implements AutoCloseable {
         this.in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
         this.out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
         this.lastInboundAt = System.currentTimeMillis();
+        int current = ++generation;
         running.set(true);
 
-        this.reader = daemon(this::readLoop, "im-net-reader");
-        this.writer = daemon(this::writeLoop, "im-net-writer");
+        this.reader = daemon(() -> readLoop(current), "im-net-reader-" + current);
+        this.writer = daemon(() -> writeLoop(current), "im-net-writer-" + current);
         reader.start();
         writer.start();
-        scheduler.scheduleAtFixedRate(this::heartbeat, heartbeatInterval.toMillis(),
-                heartbeatInterval.toMillis(), TimeUnit.MILLISECONDS);
-        changeState(State.CONNECTED);
+        if (!heartbeatStarted) {
+            heartbeatStarted = true;
+            scheduler.scheduleAtFixedRate(this::heartbeat, heartbeatInterval.toMillis(),
+                    heartbeatInterval.toMillis(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** 只关闭 socket，不改变状态（重连场景使用）。 */
+    private void closeSocketOnly() {
+        try {
+            if (socket != null) {
+                socket.close();
+            }
+        } catch (IOException ignored) {
+            // 忽略
+        }
+    }
+
+    /**
+     * 主动断开当前连接（模拟网络中断）。
+     *
+     * <p>读线程会因 EOF 退出并把状态置为 DISCONNECTED；自动重连由 {@code ConnectionManager} 负责。</p>
+     */
+    public void forceDisconnect() {
+        closeSocketOnly();
     }
 
     private static Thread daemon(Runnable r, String name) {
@@ -110,9 +152,9 @@ public final class ImConnection implements AutoCloseable {
         return t;
     }
 
-    private void readLoop() {
+    private void readLoop(int generation) {
         try {
-            while (running.get()) {
+            while (running.get() && generation == this.generation) {
                 Packet packet = codec.read(in);
                 if (packet == null) {
                     break;
@@ -127,7 +169,9 @@ public final class ImConnection implements AutoCloseable {
                 failAll(e);
             }
         } finally {
-            shutdown(false);
+            if (generation == this.generation) {
+                shutdown(false);
+            }
         }
     }
 
@@ -139,9 +183,9 @@ public final class ImConnection implements AutoCloseable {
         events.dispatch(packet);
     }
 
-    private void writeLoop() {
+    private void writeLoop(int generation) {
         try {
-            while (running.get()) {
+            while (running.get() && generation == this.generation) {
                 Packet packet = outbox.poll(1, TimeUnit.SECONDS);
                 if (packet == null) {
                     continue;

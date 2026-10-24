@@ -65,9 +65,28 @@ public final class AuthService {
         });
     }
 
-    /** 退出登录。 */
-    public CompletableFuture<LogoutResponse> logout() {
+    /** 用 token 重登（断线重连后调用）。 */
+    public CompletableFuture<com.im.common.message.AccountMessages.ReloginResponse> relogin(String token) {
         String requestId = UUID.randomUUID().toString();
+        Packet request = Packet.ofJson(MessageType.RELOGIN_REQ,
+                JsonUtil.toJson(new com.im.common.message.AccountMessages.ReloginRequest(requestId, token)));
+        return connection.request(request).thenApply(packet -> {
+            try {
+                var response = JsonUtil.fromJson(packet.payload(),
+                        com.im.common.message.AccountMessages.ReloginResponse.class);
+                if (response.code() == ErrorCode.OK.code()) {
+                    this.session = new Session(response.userId(), response.username(), token);
+                    connection.markAuthenticated();
+                }
+                return response;
+            } catch (Exception e) {
+                throw new IllegalStateException("重登响应解析失败", e);
+            }
+        });
+    }
+
+    /** 退出登录。 */
+    public CompletableFuture<LogoutResponse> logout() {        String requestId = UUID.randomUUID().toString();
         Packet request = Packet.ofJson(MessageType.LOGOUT_REQ,
                 JsonUtil.toJson(new LogoutRequest(requestId)));
         return connection.request(request).thenApply(packet -> {

@@ -9,14 +9,15 @@ import java.util.Properties;
 /**
  * 客户端可调参数（{@code client.properties}）。
  *
- * @param host           服务端地址
- * @param port           服务端端口
- * @param connectTimeoutMs 连接超时（毫秒）
- * @param requestTimeoutMs 请求-响应超时（毫秒）
- * @param heartbeatSeconds 心跳间隔（秒）
+ * @param host                服务端地址
+ * @param port                主端口
+ * @param filePort            文件端口
+ * @param connectTimeoutMs    连接超时（毫秒）
+ * @param requestTimeoutMs    请求-响应超时（毫秒）
+ * @param heartbeatSeconds    心跳间隔（秒）
  * @param reconnectMaxSeconds 重连最大退避（秒）
  */
-public record ClientConfig(String host, int port, int connectTimeoutMs,
+public record ClientConfig(String host, int port, int filePort, int connectTimeoutMs,
                            int requestTimeoutMs, int heartbeatSeconds, int reconnectMaxSeconds) {
 
     /** 依次从工作目录、classpath 读取 client.properties，缺失则用默认值。 */
@@ -35,6 +36,7 @@ public record ClientConfig(String host, int port, int connectTimeoutMs,
         return new ClientConfig(
                 props.getProperty("client.host", "127.0.0.1"),
                 intOf(props, "client.port", 8080),
+                intOf(props, "client.file-port", 8081),
                 intOf(props, "client.connect-timeout-ms", 5000),
                 intOf(props, "client.request-timeout-ms", 10000),
                 intOf(props, "client.heartbeat-seconds", 30),

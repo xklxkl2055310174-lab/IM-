@@ -94,6 +94,8 @@ public final class ChatService implements AutoCloseable {
     private final Duration ackTimeout;
     private final Map<String, PendingMessage> pending = new ConcurrentHashMap<>();
     private final List<Consumer<PrivateMsg>> incomingListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<com.im.common.message.ChatMessages.GroupMsg>> groupListeners =
+            new CopyOnWriteArrayList<>();
     private final ScheduledExecutorService timeoutScheduler;
 
     public ChatService(ImConnection connection, long selfUserId) {
@@ -117,6 +119,63 @@ public final class ChatService implements AutoCloseable {
                 // 推送解析失败不影响其它消息
             }
         });
+        connection.on(MessageType.GROUP_MSG, packet -> {
+            try {
+                com.im.common.message.ChatMessages.GroupMsg msg =
+                        JsonUtil.fromJson(packet.payload(), com.im.common.message.ChatMessages.GroupMsg.class);
+                groupListeners.forEach(listener -> listener.accept(msg));
+            } catch (Exception ignored) {
+                // 忽略
+            }
+        });
+    }
+
+    /** 发送群消息；与私聊共享待确认跟踪。 */
+    public CompletableFuture<PendingMessage> sendGroup(long groupId, String content) {
+        PendingMessage message = newMessage(groupId, content);
+        return doSendGroup(message);
+    }
+
+    private CompletableFuture<PendingMessage> doSendGroup(PendingMessage message) {
+        if (!connection.isOpen()) {
+            message.setStatus(Status.FAILED);
+            return CompletableFuture.completedFuture(message);
+        }
+        pending.put(message.msgId(), message);
+        String requestId = UUID.randomUUID().toString();
+        Packet request = Packet.ofJson(MessageType.GROUP_MSG, JsonUtil.toJson(
+                new com.im.common.message.ChatMessages.GroupMsg(requestId, message.msgId(), selfUserId,
+                        message.toUserId(), message.content(), message.timestamp())));
+
+        timeoutScheduler.schedule(() -> {
+            PendingMessage current = pending.get(message.msgId());
+            if (current != null && current.status() == Status.SENDING) {
+                current.setStatus(Status.FAILED);
+            }
+        }, ackTimeout.toMillis(), TimeUnit.MILLISECONDS);
+
+        return connection.request(request).handle((packet, error) -> {
+            if (error != null) {
+                message.setStatus(Status.FAILED);
+                pending.remove(message.msgId());
+                return message;
+            }
+            try {
+                MsgAck ack = JsonUtil.fromJson(packet.payload(), MsgAck.class);
+                message.setStatus(ack.code() == ErrorCode.OK.code() ? Status.SENT : Status.FAILED);
+            } catch (Exception e) {
+                message.setStatus(Status.FAILED);
+            }
+            pending.remove(message.msgId());
+            return message;
+        });
+    }
+
+    /** 注册收到群消息的回调。 */
+    public Runnable onIncomingGroup(
+            Consumer<com.im.common.message.ChatMessages.GroupMsg> listener) {
+        groupListeners.add(listener);
+        return () -> groupListeners.remove(listener);
     }
 
     /** 创建一条待发送消息（尚未发送，状态为 SENDING）。 */
@@ -141,6 +200,10 @@ public final class ChatService implements AutoCloseable {
     }
 
     private CompletableFuture<PendingMessage> doSend(PendingMessage message) {
+        if (!connection.isOpen()) {
+            message.setStatus(Status.FAILED);
+            return CompletableFuture.completedFuture(message);
+        }
         pending.put(message.msgId(), message);
         String requestId = UUID.randomUUID().toString();
         Packet request = Packet.ofJson(MessageType.PRIVATE_MSG, JsonUtil.toJson(
