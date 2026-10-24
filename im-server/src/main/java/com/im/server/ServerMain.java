@@ -24,19 +24,24 @@ public final class ServerMain {
         int port = base.port();
         int filePort = base.filePort();
         String dbUrl = base.dbUrl();
+        String dbUser = base.dbUser();
+        String dbPassword = base.dbPassword();
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--file-port" -> filePort = Integer.parseInt(args[++i]);
                 case "--db" -> dbUrl = args[++i];
+                case "--db-user" -> dbUser = args[++i];
+                case "--db-password" -> dbPassword = args[++i];
                 case "--help", "-h" -> {
-                    System.out.println("用法: java -jar im-server.jar [--port 8080] [--file-port 8081] [--db jdbc:h2:...]");
+                    System.out.println("用法: java -jar im-server.jar [--port 8080] [--file-port 8081] "
+                            + "[--db jdbc:h2:...|jdbc:mysql://...] [--db-user 用户] [--db-password 密码]");
                     return;
                 }
                 default -> log.warn("忽略未知参数: {}", args[i]);
             }
         }
-        ServerConfig config = base.with(port, filePort, dbUrl);
+        ServerConfig config = base.with(port, filePort, dbUrl, dbUser, dbPassword);
         Database database = new Database(config.dbUrl(), config.dbUser(), config.dbPassword(), config.dbPoolSize());
         ServerRuntime runtime = ServerRuntime.start(config, database);
         Runtime.getRuntime().addShutdownHook(new Thread(runtime::close, "im-shutdown"));

@@ -42,7 +42,10 @@ public final class Database implements AutoCloseable {
     }
 
     private void initSchema() {
-        for (String sql : loadStatements()) {
+        // H2 与 MySQL 对索引 DDL 的兼容性不同，按 JDBC URL 选择脚本
+        String script = dataSource.getJdbcUrl() != null && dataSource.getJdbcUrl().startsWith("jdbc:mysql")
+                ? "schema-mysql.sql" : "schema.sql";
+        for (String sql : loadStatements(script)) {
             try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
                 st.execute(sql);
             } catch (SQLException e) {
@@ -51,11 +54,11 @@ public final class Database implements AutoCloseable {
         }
     }
 
-    private List<String> loadStatements() {
+    private List<String> loadStatements(String resource) {
         List<String> statements = new ArrayList<>();
-        try (InputStream in = Database.class.getClassLoader().getResourceAsStream("schema.sql")) {
+        try (InputStream in = Database.class.getClassLoader().getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IllegalStateException("classpath 中缺少 schema.sql");
+                throw new IllegalStateException("classpath 中缺少 " + resource);
             }
             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
             StringBuilder current = new StringBuilder();

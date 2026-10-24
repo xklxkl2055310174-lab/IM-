@@ -59,9 +59,14 @@ public record ServerConfig(
 
     /** 基于当前配置覆盖端口与数据库（测试/命令行使用）。 */
     public ServerConfig with(int newPort, int newFilePort, String newDbUrl) {
+        return with(newPort, newFilePort, newDbUrl, dbUser, dbPassword);
+    }
+
+    /** 基于当前配置覆盖端口、数据库与账号。 */
+    public ServerConfig with(int newPort, int newFilePort, String newDbUrl, String newUser, String newPassword) {
         return new ServerConfig(newPort, backlog, maxConnections, workerThreads, sendQueueSize,
                 newFilePort, fileDir, fileMaxSize, fileThreads, heartbeatSeconds, pbkdf2Iterations,
-                newDbUrl, dbUser, dbPassword, dbPoolSize);
+                newDbUrl, newUser, newPassword, dbPoolSize);
     }
 
     private static int intOf(java.util.Properties props, String key, int fallback) {

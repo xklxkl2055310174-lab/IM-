@@ -5,6 +5,27 @@
 
 ---
 
+## 阶段 5：文档与面试材料 ✅
+
+**日期**：2026-10-25 · **范围**：README、`docs/DESIGN.md`、`docs/interview.md`、`agent.md` 简历改写；补齐 MySQL 部署链路
+
+### 完成内容
+
+| 项 | 说明 |
+|---|---|
+| README | 项目简介、功能清单、Mermaid 架构图、两种启动方式（H2 零配置 / docker-compose MySQL）、3 客户端演示步骤、截图占位 |
+| MySQL 链路（真实可用） | 新增 `docker-compose.yml`、`im-server/.../schema-mysql.sql`、`mysql-connector-j` 依赖；`Database` 按 JDBC URL 选择建表脚本；`ServerMain` 支持 `--db-user/--db-password` |
+| DESIGN.md | 架构 → 模块/包 → **简历要点↔代码落点** → 协议 → 数据库（表/索引/理由） → 线程模型 → 六个关键流程 → 设计取舍 → 可扩展方向 |
+| interview.md | 1 分钟 / 3 分钟介绍稿 + 25 道追问（粘包拆包、JSON 取舍、BIO 上限与 NIO 改造、应用层心跳、重复登录、可靠/幂等/顺序、写扩散 vs 读扩散、EDT/invokeLater、多线程写 Socket、ConcurrentHashMap、线程池参数、离线表索引、压测与瓶颈、多机扩展等） |
+| 简历改写 | `agent.md` §2 改为技术栈一行 + 5 条带数字的要点，全部对应已实现代码与真实压测数据 |
+
+### 一致性说明
+
+- 文档中所有类/方法/配置项均存在于仓库；未实现项（如服务端空闲扫描、NIO/虚拟线程、大群读扩散）明确写在「已知限制 / 可扩展方向」，不当作已完成能力。
+- 压测数字取自 `docs/benchmark.md` 的真实运行记录，复现命令一致。
+
+---
+
 ## 阶段 4：端到端测试、压测与优化 ✅
 
 **日期**：2026-10-25 · **范围**：`im-bench`（E2E 测试 + 压测工具）、`im-server`（两项写库优化）、`docs/benchmark.md`
@@ -256,3 +277,4 @@ java -cp im-server/target/im-server.jar com.im.server.demo.DemoClient --port 808
 | 阶段 3-A：客户端网络层 + 登录 + 私聊 | ✅ | 2026-10-25 |
 | 阶段 3-B：客户端完整功能 | ✅ | 2026-10-25 |
 | 阶段 4：端到端测试、压测与优化 | ✅ | 2026-10-25 |
+| 阶段 5：文档与面试材料 | ✅ | 2026-10-25 |
