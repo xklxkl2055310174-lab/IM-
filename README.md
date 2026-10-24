@@ -57,10 +57,18 @@ scripts/start-bench.bat 127.0.0.1 8080 8 500
 
 ## 配置
 
-- `server.properties`：端口、线程池、连接上限、发送队列、文件端口/目录/上限、PBKDF2 迭代次数
+- `server.properties`：端口、文件端口、线程池、连接上限、发送队列、文件目录/上限、PBKDF2 迭代次数、**数据库 JDBC url（默认 H2 文件模式，可切 MySQL 8）**
 - `client.properties`：服务端地址、连接/请求超时、心跳间隔、重连退避
 
 两个文件都在各模块 `src/main/resources` 下，可复制到工作目录覆盖。
+
+## 演示客户端
+
+```bash
+java -cp im-server/target/im-server.jar com.im.server.demo.DemoClient --port 8080 --file-port 8081 --user alice
+```
+
+命令：`/msg`、`/friend add|list`、`/group create|join|list|members|send`、`/history`、`/file send|get`。
 
 ## 文档
 
@@ -69,4 +77,4 @@ scripts/start-bench.bat 127.0.0.1 8080 8 500
 
 ## 当前进度
 
-阶段 1（工程骨架 + 通信协议）已完成；详见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+阶段 1（骨架与协议）与阶段 2-B（可靠投递、好友、群组、文件服务）已完成；详见 [docs/PROGRESS.md](docs/PROGRESS.md)。

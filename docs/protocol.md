@@ -210,7 +210,13 @@ magic  ver type   length=53      { ... JSON ... }
 | content | string | 文本内容 |
 | timestamp | long | 客户端时间戳 |
 
-服务端处理：落库（阶段 2）→ 回 `MSG_ACK` → 接收方在线立即推送，否则写收件箱（离线）。
+服务端处理（可靠投递）：
+
+1. **幂等**：`msg_id` 上有唯一索引；同一 `msgId` 重发不重复入库，直接返回原 ACK（`code=0`）；
+2. 消息本体落 `message` 表；
+3. 为接收方写一条 `offline_message` 收件箱记录；
+4. 接收方在线则立即推送同一 `PRIVATE_MSG`（`requestId` 为空）；否则记录留在收件箱；
+5. 接收方回 `DELIVER_ACK` 后删除该收件箱记录。
 
 `MSG_ACK`：`{"requestId":"r-6","msgId":"0b1f...","code":0,"message":"已接收"}`
 
@@ -252,6 +258,9 @@ magic  ver type   length=53      { ... JSON ... }
 
 客户端对每条回 `DELIVER_ACK`，全部确认后服务端推送下一批。
 
+> **至少一次投递**：若客户端收到推送后未确认就断线，收件箱记录保留，重登后再次推送；
+> 客户端应按 `msgId` 去重。`HISTORY_REQ` 可用于补齐更早的消息。
+
 ### 6.5 历史消息
 
 `HISTORY_REQ`：
@@ -265,8 +274,8 @@ magic  ver type   length=53      { ... JSON ... }
 | requestId | string | 请求标识 |
 | peerId | long | 对方用户 id（私聊）或群 id（群聊） |
 | peerType | int | 1=私聊，2=群聊 |
-| beforeId | long | 游标：只取 id 小于该值的记录，首页传 0 |
-| limit | int | 条数，服务端上限 100 |
+| beforeId | long | 游标：只取 id 小于该值的记录；**传 0 或负数表示首页（不设上界）** |
+| limit | int | 条数，**默认 50、服务端上限 100** |
 
 `HISTORY_RESP`：
 
@@ -303,33 +312,73 @@ magic  ver type   length=53      { ... JSON ... }
 
 ## 9. 文件传输（文件端口）
 
-文件消息只在 `file.port` 上交换，流程：**申请 → 分块 → 完成**。
+文件消息只在 `file.port` 上交换。**连接建立后必须先用 `RELOGIN_REQ` 携带有效 token 认证**，
+认证失败服务端回 `RELOGIN_RESP(code=2001)` 并关闭连接；未认证的连接不能上传或下载。
 
-### 9.1 上传
+流程：**认证 → 申请 → 分块 → 完成**。
 
-`FILE_UPLOAD_REQ`：`{"requestId":"f-1","fileName":"report.pdf","fileSize":1048576,"md5":"9e107d..."}`
+### 9.1 认证（文件端口专属）
 
-`FILE_UPLOAD_RESP`：`{"requestId":"f-1","code":0,"message":"可以开始上传","fileId":"b1e2...","uploadedBytes":0}`
+```json
+{"requestId":"f-0","token":"8f14e45f-..."}
+```
 
-随后以 `FILE_UPLOAD_REQ` 的同一连接**连续发送分块**：每块一个帧，body 为
-`{"requestId":"f-1","fileId":"b1e2...","offset":0,"eof":false,"data":"<Base64>"}`；
-服务端校验 `offset` 连续（否则 `ERROR(3003)`）。最后一块 `eof=true` 后，服务端回最终
-`FILE_UPLOAD_RESP`（`uploadedBytes` 为总字节数）。
+响应复用 `RELOGIN_RESP`：`{"requestId":"f-0","code":0,"message":"认证成功","userId":1001,"username":"alice"}`
 
-> 阶段 1 的 DTO 只定义了申请/响应；分块字段按上述 body 约定扩展（阶段 4 落地时同步补 DTO）。
+### 9.2 上传
 
-### 9.2 下载
+**申请帧**（`FILE_UPLOAD_REQ`）：
 
-`FILE_DOWNLOAD_REQ`：`{"requestId":"f-2","fileId":"b1e2..."}`
+```json
+{"requestId":"f-1","fileName":"report.pdf","fileSize":1048576,"md5":"9e107d9d372bb6826bd81d3542a419d6","toUserId":1002}
+```
 
-服务端按 64 KiB 分块连续返回 `FILE_DOWNLOAD_RESP`：
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| requestId | string | 请求标识 |
+| fileName | string | 原始文件名（只入库存，落盘用 fileId） |
+| fileSize | long | 文件字节数（超过 `file.max-size` 回 3002） |
+| md5 | string | 内容 MD5 十六进制（32 字符），服务端边写边算并校验 |
+| toUserId | long | 接收方 id，决定下载权限 |
+
+响应（`FILE_UPLOAD_RESP`）：
+
+```json
+{"requestId":"f-1","code":0,"message":"可以开始上传","fileId":"b1e2...","uploadedBytes":0}
+```
+
+**分块帧**（同一连接，继续用 `FILE_UPLOAD_REQ`，以是否含 `fileId` 区分）：
+
+```json
+{"requestId":"f-1","fileId":"b1e2...","offset":0,"eof":false,"data":"<Base64 64KiB>"}
+```
+
+服务端逐块校验 `offset` 必须等于已写入字节数（否则 `ERROR(3003)` 或 `FILE_UPLOAD_RESP(3003)`）。
+最后一块 `eof=true` 后服务端校验总大小与 MD5：
+
+- 通过 → 临时文件重命名为 `file/<fileId>`，写入 `file_meta`，回：
+  `{"requestId":"f-1","code":0,"message":"上传完成","fileId":"b1e2...","uploadedBytes":1048576}`
+- 失败 → 删除临时文件，回 `{"code":3003,"message":"MD5 或大小校验失败",...}`
+
+### 9.3 下载
+
+请求（`FILE_DOWNLOAD_REQ`）：
+
+```json
+{"requestId":"f-2","fileId":"b1e2...","offset":0}
+```
+
+`offset` 用于断点续传；服务端校验请求者是上传者或接收方，否则回 `FILE_DOWNLOAD_RESP(code=2002)`
+（文件不存在为 `2006`）。
+
+响应（`FILE_DOWNLOAD_RESP`）按 64 KiB 连续下发：
 
 ```json
 {"requestId":"f-2","code":0,"message":"分块","fileId":"b1e2...","fileName":"report.pdf",
  "totalBytes":1048576,"offset":0,"eof":false,"data":"<Base64>"}
 ```
 
-客户端按 `offset` 顺序拼接，`eof=true` 结束。文件不存在回 `ERROR(2006)`。
+客户端按 `offset` 顺序拼接，`eof=true` 结束。
 
 ---
 

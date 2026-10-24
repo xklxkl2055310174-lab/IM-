@@ -1,7 +1,6 @@
 package com.im.server;
 
 import com.im.common.Packet;
-import com.im.common.message.ChatMessages.OfflineMsgItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,10 +10,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -45,9 +40,10 @@ public final class Connection {
     private volatile String token = "";
     private volatile boolean open = true;
 
+    /** 当前离线批次剩余未确认条数。 */
+    private volatile int pendingAcks;
+
     /** 离线推送状态（阶段 1 使用内存队列，阶段 2 换成数据库游标）。 */
-    private final Deque<OfflineMsgItem> offlinePending = new ArrayDeque<>();
-    private final Set<String> unacked = new HashSet<>();
 
     public Connection(Socket socket, int sendQueueSize) throws IOException {
         this.socket = socket;
@@ -139,12 +135,20 @@ public final class Connection {
         this.token = token;
     }
 
-    public Deque<OfflineMsgItem> offlinePending() {
-        return offlinePending;
+    /** 设置当前离线批次的待确认条数。 */
+    public void setPendingAcks(int pendingAcks) {
+        this.pendingAcks = pendingAcks;
     }
 
-    public Set<String> unacked() {
-        return unacked;
+    /** 收到一条 DELIVER_ACK。 */
+    public void ackDelivered() {
+        if (pendingAcks > 0) {
+            pendingAcks--;
+        }
+    }
+
+    public int pendingAcks() {
+        return pendingAcks;
     }
 
     public String remoteAddress() {
