@@ -5,6 +5,50 @@
 
 ---
 
+## 阶段 3-A：客户端网络层 + 登录 + 私聊 ✅
+
+**日期**：2026-10-25 · **范围**：仅 `im-client`（net/service/ui 三层 + FlatLaf 界面 + 测试）
+
+### 完成内容
+
+| 项 | 说明 |
+|---|---|
+| `net` 层 | `ImConnection`：连接、读线程、**有界写队列 + 写线程**、心跳（30s PING，连续无响应判死）、状态机（DISCONNECTED→CONNECTING→CONNECTED→AUTHENTICATED）与状态监听器；`RequestManager`：`requestId→CompletableFuture`，默认 **10s 超时**、断开时统一失败；`EventDispatcher`：按 `MessageType` 注册监听器 |
+| `service` 层 | `AuthService`（注册/登录/退出，成功即切换 AUTHENTICATED）、`ChatService`（发送私聊并跟踪状态：MSG_ACK→已发送、超时→失败、重发复用原 msgId）、`ContactService`（在线用户）；全部返回 `CompletableFuture`，对 UI 只暴露异步 API |
+| 主题/字体 | FlatLaf 浅色主题；字体优先 Microsoft YaHei → PingFang SC → Noto Sans CJK SC → SimHei → Dialog 回退 |
+| `LoginFrame` | 表单校验、登录中禁用按钮、错误提示、记住用户名（Preferences）；成功后进入 `MainFrame` |
+| `RegisterDialog` | 用户名/密码/确认校验，异步注册，成功后提示 |
+| `MainFrame` | 左侧「会话 / 在线用户」标签页（**在线圆点 + 未读数**）、右侧 CardLayout 聊天面板、底部连接状态、标题显示当前用户；被踢下线弹窗后回到登录页 |
+| `ChatPanel` | 气泡（自己靠右、对方靠左）、时间、发送状态（发送中/已发送/失败可点重发）、**回车发送 / Shift+回车换行**、新消息自动滚到底部 |
+| 线程规则 | 所有跨线程 UI 更新统一走 `ui.UiThread`；EDT 不做网络/磁盘 IO，网络线程不直接碰 Swing |
+| 兼容门面 | `service.ImService` 保留为同步门面，供 `im-bench` 复用（bench 不可修改） |
+| 测试 | 7 个客户端测试：注册/登录成功、错误密码、私聊收发、重发复用 msgId、请求超时、ACK 超时、关闭时挂起请求失败；测试以 test scope 依赖 im-server，在随机端口启动真实服务端，并设置 `-Djava.awt.headless=true`，不创建任何窗口 |
+
+### 验证记录
+
+| 检查项 | 结果 |
+|---|---|
+| `mvn clean verify` | BUILD SUCCESS；im-common 15 + im-server 21 + im-client 7，共 43 个测试全绿 |
+| 可执行 jar | `im-client.jar` 4.1 MB（含 FlatLaf），`--help` 正常输出 |
+
+### 手动验证步骤（GUI）
+
+1. `mvn -q clean verify`
+2. 启动服务端：`java -jar im-server/target/im-server.jar --port 8080 --file-port 8081`
+3. 启动客户端 A：`java -jar im-client/target/im-client.jar --user alice` → 登录页点「注册新账号」创建 alice，再登录
+4. 启动客户端 B：`java -jar im-client/target/im-client.jar --user bob` → 注册并登录 bob
+5. 在 A 的「在线用户」页双击 bob → 右侧出现聊天面板 → 输入文字回车发送：气泡靠右、状态由「发送中」变「已发送」；B 端气泡靠左并自动滚到底部；B 未打开该会话时左侧「会话」出现未读数
+6. 顶号验证：再启动一个客户端用 alice 登录 → 第一个 alice 窗口弹窗提示后回到登录页
+7. Shift+回车可在输入框换行；断开服务端后发送，状态显示「发送失败，点击重发」，点击可重发
+
+### 已知问题（阶段 3-A 范围内接受）
+
+- 自动重连与 token 重登尚未接线（`ImConnection` 状态机与心跳已就绪，阶段 3-B 完成）。
+- 会话历史、好友/群组界面、文件收发不在本阶段范围。
+- 桌面通知、消息搜索、未读数持久化未实现。
+
+---
+
 ## 阶段 2-B：可靠投递、好友、群组、文件服务 ✅
 
 **日期**：2026-10-25 · **范围**：仅 `im-server`（新增 db/repo/service 层、文件服务、DemoClient、集成测试）
@@ -121,3 +165,4 @@ java -cp im-server/target/im-server.jar com.im.server.demo.DemoClient --port 808
 |---|---|---|
 | 阶段 1：工程骨架 + 通信协议 | ✅ | 2026-10-24 |
 | 阶段 2-B：可靠投递、好友、群组、文件服务 | ✅ | 2026-10-25 |
+| 阶段 3-A：客户端网络层 + 登录 + 私聊 | ✅ | 2026-10-25 |

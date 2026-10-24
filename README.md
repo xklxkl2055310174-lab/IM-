@@ -38,8 +38,8 @@ mvn -q clean verify
 # 1. 服务端（默认 8080）
 java -jar im-server/target/im-server.jar --port 8080
 
-# 2. 客户端（自动注册 + 登录）
-java -jar im-client/target/im-client.jar --host 127.0.0.1 --port 8080 --user alice
+# 2. 客户端（Swing 图形界面，支持多开）
+java -jar im-client/target/im-client.jar --host 127.0.0.1 --port 8080
 
 # 3. 压测
 java -jar im-bench/target/im-bench.jar --connections 8 --messages 500 --size 64
@@ -49,11 +49,12 @@ java -jar im-bench/target/im-bench.jar --connections 8 --messages 500 --size 64
 
 ```
 scripts/start-server.bat 8080
-scripts/start-client.bat 127.0.0.1 8080 alice
+scripts/start-client.bat 127.0.0.1 8080
 scripts/start-bench.bat 127.0.0.1 8080 8 500
 ```
 
-客户端命令：`/msg <toUserId> <文本>`、`/ping`、`/me`、`/quit`。
+客户端界面：登录页可注册新账号；登录后左侧「会话 / 在线用户」，双击在线用户开始私聊；
+回车发送、Shift+回车换行；消息状态显示 发送中/已发送/失败（失败可点击重发）。
 
 ## 配置
 

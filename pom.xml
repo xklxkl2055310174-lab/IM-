@@ -31,6 +31,7 @@
         <logback.version>1.5.6</logback.version>
         <h2.version>2.2.224</h2.version>
         <hikaricp.version>5.1.0</hikaricp.version>
+        <flatlaf.version>3.4.1</flatlaf.version>
 
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
@@ -48,6 +49,11 @@
             <dependency>
                 <groupId>com.im</groupId>
                 <artifactId>im-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.im</groupId>
+                <artifactId>im-server</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -77,6 +83,11 @@
                 <groupId>com.zaxxer</groupId>
                 <artifactId>HikariCP</artifactId>
                 <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.formdev</groupId>
+                <artifactId>flatlaf</artifactId>
+                <version>${flatlaf.version}</version>
             </dependency>
 
             <dependency>
